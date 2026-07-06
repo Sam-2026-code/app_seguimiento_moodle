@@ -15,7 +15,7 @@ MOODLE_TOKEN = os.getenv("MOODLE_TOKEN")
 
 st.set_page_config(page_title="Seguimiento Moodle", layout="centered")
 
-st.title("Seguimiento de alumnos en Moodle")
+st.title("Seguimiento de estudiantes en Moodle")
 
 if not MOODLE_URL or not MOODLE_TOKEN:
     st.error("No se encontró la configuración de Moodle. Creá un archivo `.env` con:\n\n"
@@ -110,10 +110,7 @@ def generar_excel_con_estilo(df, resumen_df):
         wb["Reporte"], df,
         columna_porcentaje="Porcentaje Progreso",
     )
-    _style_hoja(
-        wb["Resumen"], resumen_df,
-        columna_porcentaje="Promedio",
-    )
+    _style_hoja(wb["Resumen"], resumen_df)
 
     styled_output = io.BytesIO()
     wb.save(styled_output)
@@ -122,7 +119,7 @@ def generar_excel_con_estilo(df, resumen_df):
 
 
 uploaded_file = st.file_uploader(
-    "Subí el archivo CSV de alumnos",
+    "Subí el archivo CSV de estudiantes",
     type="csv",
     help="Formato: nombre;apellido;email;dni (separado por punto y coma)",
 )
@@ -147,7 +144,7 @@ if uploaded_file is not None:
                 procesados = update.get("procesados", 0)
                 bar.progress(
                     min(procesados / max(total, 1), 1.0),
-                    text=f"Procesando alumno {procesados} de {total}",
+                    text=f"Procesando estudiante {procesados} de {total}",
                 )
             elif update["tipo"] == "completo":
                 resultados = update["rows"]
@@ -155,15 +152,16 @@ if uploaded_file is not None:
         if resultados:
             df_out = pd.DataFrame(resultados)
 
-            total_alumnos = df_out["Nombre y apellido"].nunique()
+            total_estudiantes = df_out["Nombre y apellido"].nunique()
             cursos_unicos = [c for c in df_out["Curso"].unique() if c]
             total_cursos = len(cursos_unicos)
             prom_progreso = df_out["Porcentaje Progreso"].mean()
 
             col1, col2, col3 = st.columns(3)
-            col1.metric("Alumnos procesados", total_alumnos)
+            col1.metric("Estudiantes procesados", total_estudiantes)
             col2.metric("Cursos detectados", total_cursos)
-            col3.metric("Progreso promedio", f"{prom_progreso:.0%}")
+            col3.metric("Progreso promedio", f"{prom_progreso:.0%}",
+                        help="Promedio del porcentaje de avance de todos los estudiantes en todos los cursos")
 
             mask_con_curso = df_out["Curso"] != ""
             if mask_con_curso.any():
@@ -172,17 +170,15 @@ if uploaded_file is not None:
                     .groupby("Curso", sort=False)
                     .agg(
                         Inscriptos=("Nombre y apellido", "nunique"),
-                        Promedio=("Porcentaje Progreso", "mean"),
-                        Sin_inicio=("Porcentaje Progreso", lambda x: (x == 0).sum()),
+                        **{"Sin inicio": ("Porcentaje Progreso", lambda x: (x == 0).sum())},
+                        **{"% En curso": ("Porcentaje Progreso", lambda x: ((x > 0) & (x < 1.0)).sum())},
                         Completos=("Porcentaje Progreso", lambda x: (x >= 1.0).sum()),
                     )
                     .reset_index()
                 )
 
                 st.subheader("Resumen por curso")
-                df_display = resumen_curso.copy()
-                df_display["Promedio"] = df_display["Promedio"].apply(lambda x: f"{x:.0%}")
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                st.dataframe(resumen_curso, use_container_width=True, hide_index=True)
 
                 st.success(f"Reporte generado: {len(df_out)} registros")
                 st.dataframe(df_out, use_container_width=True, hide_index=True)

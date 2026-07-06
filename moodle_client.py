@@ -2,6 +2,7 @@ import requests
 import unicodedata
 from datetime import datetime, timezone
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class MoodleClient:
@@ -10,7 +11,7 @@ class MoodleClient:
         self.token = token
         self.format = "json"
 
-    def _call(self, wsfunction: str, params: dict = None, method: str = "post", timeout: int = 30):
+    def _call(self, wsfunction: str, params: dict = None, method: str = "post", timeout: int = 15):
         if params is None:
             params = {}
         url = f"{self.url}/webservice/rest/server.php"
@@ -144,78 +145,111 @@ class MoodleClient:
         last_time_str = self._epoch_to_str(last_ts) if last_ts > 0 else "Aún no comenzó"
         return pct, last_name, last_time_str
 
-    def process_csv(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df.columns = [self._clean_text(c) for c in df.columns]
-        col_nombre, col_apellido, col_dni = "nombre", "apellido", "dni"
+    def _process_student(self, dni, nombre, apellido):
+        rows = []
+        found_users = []
+        if dni:
+            found_users = self.find_user_by_dni(dni)
+        if not found_users:
+            found_users = self.find_user_by_name(nombre, apellido)
 
-        total_rows = len(df)
-        yield {"tipo": "inicio", "total": total_rows}
+        if not found_users:
+            rows.append({
+                "DNI": dni,
+                "Nombre y apellido": f"{nombre} {apellido}",
+                "Curso": "",
+                "Porcentaje Progreso": 0,
+                "Ultimo módulo visto": "",
+                "Fecha último módulo": "No encontrado en Moodle",
+            })
+            return rows, f"{nombre} {apellido}"
 
-        out_rows = []
+        fullname = ""
+        for u in found_users:
+            userid = u.get("id")
+            fullname = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip()
+            courses = self.get_user_courses(userid)
 
-        for idx, row in df.iterrows():
-            val_nombre = (row.get(col_nombre) or "").strip()
-            val_apellido = (row.get(col_apellido) or "").strip()
-            val_dni = str(row.get(col_dni) or "").strip()
-
-            if not val_nombre and not val_apellido and not val_dni:
-                continue
-
-            yield {"tipo": "status", "mensaje": f"Analizando: {val_nombre} {val_apellido}", "fila": idx}
-
-            found_users = []
-            if val_dni:
-                found_users = self.find_user_by_dni(val_dni)
-            if not found_users:
-                found_users = self.find_user_by_name(val_nombre, val_apellido)
-
-            if not found_users:
-                out_rows.append({
-                    "DNI": val_dni,
-                    "Nombre y apellido": f"{val_nombre} {val_apellido}",
+            if not courses:
+                rows.append({
+                    "DNI": dni,
+                    "Nombre y apellido": fullname,
                     "Curso": "",
                     "Porcentaje Progreso": 0,
                     "Ultimo módulo visto": "",
-                    "Fecha último módulo": "No encontrado en Moodle",
+                    "Fecha último módulo": "Sin cursos asignados",
                 })
                 continue
 
-            for u in found_users:
-                userid = u.get("id")
-                fullname = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip()
-                courses = self.get_user_courses(userid)
+            for c in courses:
+                cid = c.get("id")
+                cname = c.get("fullname", "Curso sin nombre")
+                last_access = self._get_course_lastaccess(cid, userid)
+                pct, last_mod, last_date = self.get_course_progress(cid, userid)
 
-                if not courses:
-                    out_rows.append({
-                        "DNI": val_dni,
-                        "Nombre y apellido": fullname,
+                fecha_final = last_date if last_date and last_date != "Sin registro" else (last_access if last_access else "Aún no comenzó")
+                if last_date == "Aún no comenzó" and last_access:
+                    last_mod = "Entró al curso pero no completó actividades"
+
+                rows.append({
+                    "DNI": dni,
+                    "Nombre y apellido": fullname,
+                    "Curso": cname,
+                    "Porcentaje Progreso": pct,
+                    "Ultimo módulo visto": last_mod,
+                    "Fecha último módulo": fecha_final,
+                })
+
+        return rows, fullname
+
+    def process_csv(self, df: pd.DataFrame):
+        df = df.copy()
+        df.columns = [self._clean_text(c) for c in df.columns]
+
+        mask = df["nombre"].str.strip().ne("") | df["apellido"].str.strip().ne("") | df["dni"].astype(str).str.strip().ne("")
+        df = df[mask].reset_index(drop=True)
+
+        total = len(df)
+        yield {"tipo": "inicio", "total": total}
+
+        if total == 0:
+            yield {"tipo": "completo", "rows": []}
+            return
+
+        out_rows = []
+        procesados = 0
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
+            for idx, row in df.iterrows():
+                val_nombre = (row.get("nombre") or "").strip()
+                val_apellido = (row.get("apellido") or "").strip()
+                val_dni = str(row.get("dni") or "").strip()
+
+                future = executor.submit(self._process_student, val_dni, val_nombre, val_apellido)
+                futures[future] = (idx, val_nombre, val_apellido)
+
+            for future in as_completed(futures):
+                idx, nombre, apellido = futures[future]
+                try:
+                    student_rows, fullname = future.result()
+                except Exception:
+                    student_rows = [{
+                        "DNI": str(df.at[idx, "dni"] if idx in df.index else ""),
+                        "Nombre y apellido": f"{nombre} {apellido}",
                         "Curso": "",
                         "Porcentaje Progreso": 0,
                         "Ultimo módulo visto": "",
-                        "Fecha último módulo": "Sin cursos asignados",
-                    })
-                    continue
+                        "Fecha último módulo": "Error al procesar",
+                    }]
+                    fullname = f"{nombre} {apellido}"
+                out_rows.extend(student_rows)
+                procesados += 1
 
-                for c in courses:
-                    cid = c.get("id")
-                    cname = c.get("fullname", "Curso sin nombre")
-                    last_access = self._get_course_lastaccess(cid, userid)
-                    pct, last_mod, last_date = self.get_course_progress(cid, userid)
-
-                    fecha_final = last_date if last_date and last_date != "Sin registro" else (last_access if last_access else "Aún no comenzó")
-                    if last_date == "Aún no comenzó" and last_access:
-                        last_mod = "Entró al curso pero no completó actividades"
-
-                    out_rows.append({
-                        "DNI": val_dni,
-                        "Nombre y apellido": fullname,
-                        "Curso": cname,
-                        "Porcentaje Progreso": pct,
-                        "Ultimo módulo visto": last_mod,
-                        "Fecha último módulo": fecha_final,
-                    })
-
-                    yield {"tipo": "progreso", "curso": cname, "pct": pct}
+                yield {
+                    "tipo": "status",
+                    "mensaje": f"Completado: {fullname}",
+                    "procesados": procesados,
+                }
 
         yield {"tipo": "completo", "rows": out_rows}

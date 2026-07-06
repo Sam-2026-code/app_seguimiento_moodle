@@ -43,9 +43,11 @@ if uploaded_file is not None:
                 total = update["total"]
             elif update["tipo"] == "status":
                 status.info(update["mensaje"])
-                fila = update.get("fila", 0)
-                bar.progress(min((fila + 1) / max(total, 1), 1.0),
-                             text=f"Procesando... {min(fila + 1, total)}/{total}")
+                procesados = update.get("procesados", 0)
+                bar.progress(
+                    min(procesados / max(total, 1), 1.0),
+                    text=f"Procesando... {procesados}/{total}",
+                )
             elif update["tipo"] == "completo":
                 resultados = update["rows"]
 

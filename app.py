@@ -29,7 +29,8 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     df_input = pd.read_csv(uploaded_file, sep=";", header=0, dtype=str, encoding="latin1").fillna("")
-    st.caption(f"Filas detectadas: {len(df_input)}")
+    total_filas = len(df_input)
+    st.caption(f"Filas en el archivo: {total_filas} (las filas vacías se omiten al procesar)")
 
     if st.button("Ejecutar seguimiento", type="primary"):
         bar = st.progress(0, text="Iniciando...")
@@ -46,7 +47,7 @@ if uploaded_file is not None:
                 procesados = update.get("procesados", 0)
                 bar.progress(
                     min(procesados / max(total, 1), 1.0),
-                    text=f"Procesando... {procesados}/{total}",
+                    text=f"Procesando alumno {procesados} de {total}",
                 )
             elif update["tipo"] == "completo":
                 resultados = update["rows"]

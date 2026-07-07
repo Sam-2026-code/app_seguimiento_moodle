@@ -50,4 +50,23 @@ El repositorio es **público** porque Streamlit Community Cloud (plan gratuito) 
 ## Despliegue
 
 - **GitHub**: [Sam-2026-code/app_seguimiento_moodle](https://github.com/Sam-2026-code/app_seguimiento_moodle)
-- **Streamlit Cloud**: URL provista por Streamlit al desplegar
+- **Streamlit Cloud**: [appseguimientomoodle-nqkatxi8rueleackfnhg6y.streamlit.app](https://appseguimientomoodle-nqkatxi8rueleackfnhg6y.streamlit.app/)
+
+## Compartir la app
+
+Cualquier persona con la URL puede usar la app desde el navegador, sin necesidad de cuenta:
+
+```
+https://appseguimientomoodle-nqkatxi8rueleackfnhg6y.streamlit.app/
+```
+
+### Límites del plan gratuito (Streamlit Community Cloud)
+
+| Aspecto | Límite |
+|---|---|
+| Usuarios simultáneos | Hasta **3** (el 4to espera a que se libere un lugar) |
+| Reactivación | La app se duerme tras inactividad; se reactiva sola al primer acceso (~15s) |
+| Datos subidos | Solo existen en memoria mientras la app está abierta |
+| Reportes generados | Se descargan al navegador, no quedan almacenados en el servidor |
+
+Si el equipo necesita más de 3 usuarios simultáneos, habría que upgradear a **Streamlit Teams** (USD $349/mes aprox).

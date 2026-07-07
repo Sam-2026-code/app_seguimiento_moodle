@@ -70,3 +70,82 @@ https://appseguimientomoodle-nqkatxi8rueleackfnhg6y.streamlit.app/
 | Reportes generados | Se descargan al navegador, no quedan almacenados en el servidor |
 
 Si el equipo necesita más de 3 usuarios simultáneos, habría que upgradear a **Streamlit Teams** (USD $349/mes aprox).
+
+## Desarrollo local
+
+### Prerrequisitos
+- Python 3.10+
+- pip
+
+### Instalación
+
+```bash
+git clone https://github.com/Sam-2026-code/app_seguimiento_moodle.git
+cd app_seguimiento_moodle
+pip install -r requirements.txt
+```
+
+### Configuración
+
+Crear un archivo `.env` en la raíz del proyecto:
+
+```
+MOODLE_URL=https://escueladesig.com.ar/clases
+MOODLE_TOKEN=tu-token-del-webservice
+```
+
+### Ejecutar
+
+```bash
+streamlit run app.py
+```
+
+## Estructura del código
+
+### `app.py`
+Interfaz de usuario Streamlit. Maneja: subida de archivos, barra de progreso, métricas, tabla de resultados y descarga del Excel con estilos.
+
+### `moodle_client.py`
+Clase `MoodleClient` con los siguientes métodos que consultan la API REST de Moodle:
+
+| Método | API de Moodle | Descripción |
+|---|---|---|
+| `find_user_by_dni()` | `core_user_get_users_by_field` | Busca estudiante por DNI (username → idnumber) |
+| `find_user_by_name()` | `core_user_get_users` | Busca por nombre + apellido |
+| `get_user_courses()` | `core_enrol_get_users_courses` | Obtiene los cursos del estudiante |
+| `get_course_progress()` | `core_completion_get_activities_completion_status` | Calcula progreso, último módulo y fecha |
+| `_get_course_sections()` | `core_course_get_contents` | Obtiene nombres de las secciones del curso |
+| `_get_course_lastaccess()` | `core_user_get_course_user_profiles` | Obtiene la fecha del último acceso |
+
+El método `process_csv()` es un generator que procesa el DataFrame: filtra filas vacías, busca cada estudiante en Moodle (en paralelo, hasta 3 simultáneos) y yield actualizaciones de progreso para la UI.
+
+### Dependencias
+
+| Librería | Uso |
+|---|---|
+| `streamlit` | Framework de la interfaz web |
+| `requests` | Llamadas HTTP a la API REST de Moodle |
+| `pandas` | Manipulación de DataFrames (CSV de entrada y Excel de salida) |
+| `openpyxl` | Generación y estilo del archivo Excel (.xlsx) |
+| `python-dotenv` | Lectura del archivo `.env` en entorno local |
+
+## Formato del CSV de entrada
+
+Archivo de texto con separador `;` (punto y coma), encoding **latin1** (ISO-8859-1), con encabezado:
+
+```csv
+nombre;apellido;email;dni
+Silvia;Alaniz;salaniz@mecon.gov.ar;31138583
+Marcos;Fernandez;marcfernan@mecon.gov.ar;33266738
+```
+
+Las columnas requeridas son: `nombre`, `apellido`, `email`, `dni`. Las filas vacías se omiten automáticamente.
+
+## Troubleshooting
+
+| Problema | Causa probable | Solución |
+|---|---|---|
+| "No se encontró configuración de Moodle" | Secrets no configurados en Streamlit Cloud | Settings > Secrets > pegar `MOODLE_URL` y `MOODLE_TOKEN` |
+| App se queda cargando sin progreso | Timeout o error de conexión al servidor Moodle | Verificar que la URL y token sean correctos; probar conectividad manual |
+| Error de encoding en CSV | El archivo no está en latin1 | Guardar el CSV con codificación ISO-8859-1 (ANSI) |
+| El repo de GitHub no aparece en Streamlit | Streamlit vinculado a otra cuenta de GitHub | Asegurar que la sesión de Streamlit use la misma cuenta de GitHub que el repo |
